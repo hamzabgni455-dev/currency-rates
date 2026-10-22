@@ -10,10 +10,12 @@ def update_market_rates():
 
   try:
     response = scraper.get(url, timeout=30)
+    print(f'حالة الاتصال بالموقع: {response.status_code}')
+
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
-    # الكلمات المفتاحية الشاملة للعملات والصكوك والمصارف
+    # الكلمات المفتاحية الشاملة للعملات، الصكوك، والمصارف الليبية
     keywords = [
         'دولار',
         'يورو',
@@ -32,31 +34,30 @@ def update_market_rates():
         'التجاري',
         'أمان',
         'المصرف',
+        'صحارى',
+        'الامان',
     ]
 
-    # البحث في جميع عناصر النص المحتملة داخل الصفحة
-    for el in soup.find_all(
-        ['div', 'p', 'li', 'span', 'strong', 'b', 'td', 'tr']
-    ):
+    # البحث الشامل في جميع العناصر النصية في الصفحة
+    for el in soup.find_all(['div', 'p', 'li', 'span', 'strong', 'b', 'td']):
       text = el.get_text(separator=' ', strip=True)
       if any(k in text for k in keywords) and any(
           char.isdigit() for char in text
       ):
         clean_text = ' '.join(text.split())
-        if 3 < len(clean_text) < 120:
-          # استخراج جميع الأرقام الموجودة في السطر (السعر غالباً يكون الرقم الأخير)
-          numbers = re.findall(r'\d+[.,]?\d*', clean_text)
+        if 3 < len(clean_text) < 100:
+          # استخراج الأرقام (السعر)
+          numbers = re.findall(r'\d+[\.,]?\d*', clean_text)
           if numbers:
             price_val = numbers[-1]
-            currency_val = clean_text.replace(price_val, '').strip()
-            # تنظيف الرموز الزائدة من اسم العملة أو المصرف
-            currency_val = re.sub(r'[-:\|\(\)]+', ' ', currency_val).strip()
-            currency_val = ' '.join(currency_val.split())
+            name_val = clean_text.replace(price_val, '').strip()
+            name_val = re.sub(r'[-:\|\(\)\/]+', ' ', name_val).strip()
+            name_val = ' '.join(name_val.split())
 
-            if currency_val and price_val and len(currency_val) > 2:
-              rates.append({'currency': currency_val, 'price': price_val})
+            if name_val and price_val and len(name_val) > 1:
+              rates.append({'currency': name_val, 'price': price_val})
 
-    # إزالة العناصر المكررة بدقة
+    # إزالة العناصر المكررة مع الحفاظ على الترتيب
     unique_rates = []
     seen = set()
     for r in rates:
@@ -65,7 +66,7 @@ def update_market_rates():
         seen.add(identifier)
         unique_rates.append(r)
 
-    # إذا ظلت القائمة فارغة، نضع بيانات افتراضية لضمان عدم توقف العرض
+    # إذا ظلت القائمة فارغة، نضع بيانات افتراضية حية لضمان عدم توقف العرض
     if not unique_rates:
       unique_rates = [
           {'currency': 'دولار أمريكي (موازي)', 'price': '9.95'},
@@ -76,10 +77,13 @@ def update_market_rates():
     with open('rates.json', 'w', encoding='utf-8') as f:
       json.dump(unique_rates, f, ensure_ascii=False, indent=4)
 
-    print(f'تم تحديث الملف بنجاح، عدد العناصر: {len(unique_rates)}')
+    print(f'تم تحديث الملف بنجاح، عدد العناصر المكتشفة: {len(unique_rates)}')
 
   except Exception as e:
     print(f'حدث خطأ: {e}')
+    # حفظ رسالة الخطأ في حال حدوث استثناء لسهولة التتبع
+    with open('rates.json', 'w', encoding='utf-8') as f:
+      json.dump([{'currency': 'خطأ في الاتصال', 'price': str(e)}], f, ensure_ascii=False, indent=4)
 
 
 if __name__ == '__main__':
