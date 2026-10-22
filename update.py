@@ -13,52 +13,45 @@ def update_market_rates():
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
-    # الكلمات المفتاحية الشاملة للعملات والصكوك والمصارف الليبية
-    keywords = [
-        'دولار',
-        'يورو',
-        'إسترليني',
-        'دينار',
-        'ليرة',
-        'جنيه',
-        'مصري',
-        'سعودي',
-        'درهم',
-        'صك',
-        'صكوك',
-        'التجارة',
-        'التنمية',
-        'الوحدة',
-        'الجمهورية',
-        'التجاري',
-        'أمان',
-        'صحارى',
-        'السرايا',
-        'الوفاء',
-        'المتوسط',
-        'البنك',
-        'مصرف',
-    ]
+    # 1. الاستخراج الذكي من جداول الموقع (حيث ينفصل اسم العملة عن السعر في أعمدة الجدول)
+    for row in soup.find_all('tr'):
+      cols = [col.get_text(strip=True) for col in row.find_all(['td', 'th'])]
+      if len(cols) >= 2:
+        name = cols[0]
+        price = cols[-1]  # السعر غالباً يكون في العمود الأخير
+        if name and price and any(char.isdigit() for char in price):
+          # استبعاد رؤوس الجدول العرضية
+          if not any(
+              w in name for w in ['العملة', 'السعر', 'الجهة', 'البنك', 'التفاصيل']
+          ):
+            rates.append({'currency': name, 'price': price})
 
-    # مسح شامل لجميع العناصر النصية والجداول في الصفحة
-    for el in soup.find_all(
-        ['tr', 'div', 'p', 'li', 'span', 'strong', 'b', 'td', 'th']
-    ):
-      text = el.get_text(separator=' ', strip=True)
-      if any(k in text for k in keywords) and any(
-          char.isdigit() for char in text
-      ):
-        clean_text = ' '.join(text.split())
-        if 3 < len(clean_text) < 100:
-          match_price = re.search(r'\d+([,.]\d+)?', clean_text)
-          if match_price:
-            price_val = match_price.group(0)
-            currency_val = clean_text.replace(price_val, '').strip()
-            currency_val = re.sub(r'[-:\|\(\)\/]+', ' ', currency_val).strip()
-            currency_val = ' '.join(currency_val.split())
-
-            if currency_val and price_val and len(currency_val) > 1:
-              rates.append({'currency': currency_val, 'price': price_val})
+    # 2. البحث الاحتياطي في القوائم أو العناصر الأخرى إذا لم تكتمل الجداول
+    if len(rates) < 2:
+      for item in soup.find_all(['li', 'div', 'p', 'span']):
+        text = item.get_text(separator=' ', strip=True)
+        if any(
+            k in text
+            for k in [
+                'دولار',
+                'يورو',
+                'دينار',
+                'صك',
+                'التجارة',
+                'الوحدة',
+                'الجمهورية',
+                'التجاري',
+            ]
+        ) and any(char.isdigit() for char in text):
+          if len(text) < 80:
+            match = re.search(r'(\d+([,.]\d+)?)', text)
+            if match:
+              price_val = match.group(0)
+              name_val = text.replace(price_val, '').strip()
+              name_val = re.sub(r'[-:\|\(\)\/]+', ' ', name_val).strip()
+              name_val = ' '.join(name_val.split())
+              if name_val and price_val:
+                rates.append({'currency': name_val, 'price': price_val})
 
     # إزالة العناصر المكررة بدقة
     unique_rates = []
@@ -69,10 +62,10 @@ def update_market_rates():
         seen.add(identifier)
         unique_rates.append(r)
 
-    # إذا لم يتم العثور على بيانات حية، نضع تنبيه واضح
+    # إذا وجدنا بيانات حية نعتمدها، وإلا نترك تنبيه واضح
     if not unique_rates:
       unique_rates = [{
-          'currency': 'جاري تحديث الأسعار الحية',
+          'currency': 'جاري جلب الأسعار الحية',
           'price': 'يرجى الانتظار',
       }]
 
