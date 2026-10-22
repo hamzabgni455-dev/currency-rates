@@ -5,30 +5,49 @@ from curl_cffi import requests
 
 
 def update_market_rates():
-  # يمكنك استبدال الرابط أدناه بأي موقع بديل ترغب به (مثل صدى الاقتصادية أو غيره)
   url = 'https://sada.ly/'
 
   try:
-    # استخدام بصمة المتصفح الحقيقي لتجاوز أي حماية محتملة
     response = requests.get(url, impersonate='chrome', timeout=30)
-    print(f'حالة الاتصال بالمصدر البديل: {response.status_code}')
+    print(f'حالة الاتصال بالمصدر: {response.status_code}')
 
     if response.status_code != 200:
-      print('تعذر الاتصال بالمصدر الجديد')
+      print('تعذر الاتصال بالموقع')
       return
 
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
-    # الكلمات المفتاحية الشاملة للعملات والصكوك والمصارف
-    keywords = [
+    # كلمات مفتاحية يجب استبعادها تماماً لأنها تدل على عناوين إخبارية وليست أسعاراً
+    news_stopwords = [
+        'تقارير',
+        'مقالات',
+        'مقال',
+        'يكشف',
+        'تسعى',
+        'تخفيض',
+        'مصير',
+        'لماذا',
+        'كيف',
+        'أبرز',
+        'عاجل',
+        'التفاصيل',
+        'الرئيسية',
+        'إنتهاء',
+        'السياسي',
+        'المركزي',
+        'مليار',
+        'مليون',
+    ]
+
+    # الكلمات المستهدفة للعملات والصكوك
+    target_keywords = [
         'دولار',
         'يورو',
         'إسترليني',
         'دينار',
         'ليرة',
         'جنيه',
-        'مصري',
         'سعودي',
         'درهم',
         'صك',
@@ -41,33 +60,34 @@ def update_market_rates():
         'أمان',
         'صحارى',
         'السرايا',
-        'الوفاء',
-        'المتوسط',
-        'بنك',
-        'مصرف',
     ]
 
-    # البحث الشامل في عناصر الصفحة عن العملات والصكوك المقترنة بالأرقام
-    for el in soup.find_all(
-        ['div', 'p', 'span', 'li', 'strong', 'b', 'td', 'h3', 'h4', 'article']
-    ):
+    for el in soup.find_all(['div', 'p', 'span', 'li', 'strong', 'b', 'td']):
       text = el.get_text(separator=' ', strip=True)
-      if any(k in text for k in keywords) and any(
+
+      # تخطي النص فوراً إذا كان يحتوي على كلمات إخبارية
+      if any(stop in text for stop in news_stopwords):
+        continue
+
+      # التحقق من وجود كلمات العملات أو الصكوك مع وجود أرقام
+      if any(k in text for k in target_keywords) and any(
           char.isdigit() for char in text
       ):
         clean_text = ' '.join(text.split())
-        if 3 < len(clean_text) < 120:
-          numbers = re.findall(r'\d+[\.,]?\d*', clean_text)
-          if numbers:
-            price_val = numbers[-1]
-            name_val = clean_text.replace(price_val, '').strip()
-            name_val = re.sub(r'[-:\|\(\)\/]+', ' ', name_val).strip()
-            name_val = ' '.join(name_val.split())
 
-            if name_val and price_val and len(name_val) > 2:
-              rates.append({'currency': name_val, 'price': price_val})
+        # شرط أساسي: يجب أن يكون النص قصيراً جداً (اسم العملة أو الصك لا يتجاوز 4 كلمات)
+        if len(clean_text) < 35 and len(clean_text.split()) <= 4:
+          match_price = re.search(r'\d+([,.]\d+)?', clean_text)
+          if match_price:
+            price_val = match_price.group(0)
+            currency_val = clean_text.replace(price_val, '').strip()
+            currency_val = re.sub(r'[-:\|\(\)\/]+', ' ', currency_val).strip()
+            currency_val = ' '.join(currency_val.split())
 
-    # إزالة العناصر المكررة بدقة
+            if currency_val and price_val and len(currency_val) > 1:
+              rates.append({'currency': currency_val, 'price': price_val})
+
+    # إزالة العناصر المكررة
     unique_rates = []
     seen = set()
     for r in rates:
@@ -76,7 +96,7 @@ def update_market_rates():
         seen.add(identifier)
         unique_rates.append(r)
 
-    # بيانات احتياطية لضمان عدم توقف العرض في حال تغيير تصميم الموقع البديل
+    # بيانات احتياطية في حال لم تتوفر عناصر مطابقة بدقة
     if not unique_rates:
       unique_rates = [
           {'currency': 'دولار أمريكي (موازي)', 'price': '9.95'},
@@ -87,10 +107,10 @@ def update_market_rates():
     with open('rates.json', 'w', encoding='utf-8') as f:
       json.dump(unique_rates, f, ensure_ascii=False, indent=4)
 
-    print(f'تم تحديث الملف بنجاح من المصدر البديل، عدد العناصر: {len(unique_rates)}')
+    print(f'تم تحديث الملف بنجاح، عدد العناصر الصافية: {len(unique_rates)}')
 
   except Exception as e:
-    print(f'حدث خطأ تقني: {e}')
+    print(f'حدث خطأ: {e}')
 
 
 if __name__ == '__main__':
