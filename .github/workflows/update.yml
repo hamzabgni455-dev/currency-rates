@@ -1,0 +1,35 @@
+name: Update Currency Rates Automatically
+
+on:
+  schedule:
+    # يتم تشغيل السكريبت تلقائياً كل 3 ساعات
+    - cron: '0 */3 * * *'
+  workflow_dispatch: # يتيح لك تشغيل التحديث يدوياً متى شئت
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # منح الصلاحية لحفظ ملف rates.json تلقائياً
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Run scraping script
+        run: python update.py
+
+      - name: Commit and push changes if rates updated
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add rates.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update currency rates: $(date +'%Y-%m-%d %H:%M')" && git push)
