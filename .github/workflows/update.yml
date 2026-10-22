@@ -2,15 +2,14 @@ name: Update Currency Rates Automatically
 
 on:
   schedule:
-    # يتم تشغيل السكريبت تلقائياً كل 3 ساعات
     - cron: '0 */3 * * *'
-  workflow_dispatch: # يتيح لك تشغيل التحديث يدوياً متى شئت
+  workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # منح الصلاحية لحفظ ملف rates.json تلقائياً
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
