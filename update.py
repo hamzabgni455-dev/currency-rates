@@ -13,6 +13,7 @@ def update_market_rates():
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
+    # الكلمات المفتاحية للعملات والصكوك المصرفية
     keywords = [
         'دولار',
         'يورو',
@@ -23,6 +24,13 @@ def update_market_rates():
         'مصري',
         'سعودي',
         'درهم',
+        'صك',
+        'صكوك',
+        'التجارة والتنمية',
+        'الوحدة',
+        'الجمهورية',
+        'التجاري الوطني',
+        'شمال إفريقيا',
     ]
 
     for element in soup.find_all(
@@ -33,8 +41,7 @@ def update_market_rates():
           char.isdigit() for char in text
       ):
         clean_text = ' '.join(text.split())
-        if 5 < len(clean_text) < 80:
-          # استخراج الرقم (السعر) والنص (العملة) بشكل منفصل
+        if 5 < len(clean_text) < 90:
           match_price = re.search(r'\d+([,.]\d+)?', clean_text)
           if match_price:
             price_val = match_price.group(0)
@@ -54,7 +61,7 @@ def update_market_rates():
     if not unique_rates:
       unique_rates = [{'currency': 'جاري التحديث', 'price': ''}]
 
-    # حفظ النتائج مرتبة ومنظمة في ملف rates.json
+    # حفظ النتائج في ملف rates.json
     with open('rates.json', 'w', encoding='utf-8') as f:
       json.dump(unique_rates, f, ensure_ascii=False, indent=4)
 
