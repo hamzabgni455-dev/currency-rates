@@ -1,4 +1,5 @@
 import json
+import re
 from bs4 import BeautifulSoup
 import cloudscraper
 
@@ -12,7 +13,6 @@ def update_market_rates():
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
-    # قائمة الكلمات المفتاحية للعملات المستهدفة
     keywords = [
         'دولار',
         'يورو',
@@ -25,35 +25,36 @@ def update_market_rates():
         'درهم',
     ]
 
-    # البحث في جميع العناصر النصية والجداول داخل الصفحة
-    for element in soup.find_all(['tr', 'div', 'p', 'li', 'span', 'strong', 'b']):
+    for element in soup.find_all(
+        ['tr', 'div', 'p', 'li', 'span', 'strong', 'b']
+    ):
       text = element.get_text(separator=' ', strip=True)
-
-      # التأكد من أن النص يحتوي على إحدى العملات وأرقام (الأسعار)
       if any(k in text for k in keywords) and any(
           char.isdigit() for char in text
       ):
         clean_text = ' '.join(text.split())
-        # قبول النصوص ذات الطول المعقول لتجنب جلب القوائم الطويلة أو الجوانب
         if 5 < len(clean_text) < 80:
-          rates.append({'currency': clean_text, 'price': ''})
+          # استخراج الرقم (السعر) والنص (العملة) بشكل منفصل
+          match_price = re.search(r'\d+([,.]\d+)?', clean_text)
+          if match_price:
+            price_val = match_price.group(0)
+            currency_val = clean_text.replace(price_val, '').strip()
+            if currency_val and price_val:
+              rates.append({'currency': currency_val, 'price': price_val})
 
-    # إزالة العناصر المكررة تماماً
+    # إزالة العناصر المكررة
     unique_rates = []
     seen = set()
     for r in rates:
-      if r['currency'] not in seen:
-        seen.add(r['currency'])
+      identifier = (r['currency'], r['price'])
+      if identifier not in seen:
+        seen.add(identifier)
         unique_rates.append(r)
 
-    # إذا لم يتم العثور على أي بيانات، نضع تنبيه واضح
     if not unique_rates:
-      unique_rates = [{
-          'currency': 'جاري تحديث البيانات من الموقع',
-          'price': '',
-      }]
+      unique_rates = [{'currency': 'جاري التحديث', 'price': ''}]
 
-    # حفظ النتائج في ملف rates.json
+    # حفظ النتائج مرتبة ومنظمة في ملف rates.json
     with open('rates.json', 'w', encoding='utf-8') as f:
       json.dump(unique_rates, f, ensure_ascii=False, indent=4)
 
