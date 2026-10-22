@@ -1,12 +1,10 @@
 import json
-import cloudscraper
 from bs4 import BeautifulSoup
+import cloudscraper
 
 
 def update_market_rates():
   url = 'https://www.eanlibya.com/exchangerate/'
-
-  # استخدام cloudscraper لتجاوز حماية الموقع (مثل Cloudflare)
   scraper = cloudscraper.create_scraper()
 
   try:
@@ -14,62 +12,45 @@ def update_market_rates():
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
-    # 1. البحث في جداول الموقع
-    for tr in soup.find_all('tr'):
-      cols = [td.text.strip() for td in tr.find_all(['th', 'td'])]
-      if len(cols) >= 2:
-        name, price = cols[0], cols[1]
-        if (
-            any(
-                c in name
-                for c in [
-                    'دولار',
-                    'يورو',
-                    'إسترليني',
-                    'دينار',
-                    'ليرة',
-                    'مصري',
-                    'السعودي',
-                    'درهم',
-                ]
-            )
-            and any(char.isdigit() for char in price)
-        ):
-          rates.append({'currency': name, 'price': price})
+    # قائمة الكلمات المفتاحية للعملات المستهدفة
+    keywords = [
+        'دولار',
+        'يورو',
+        'إسترليني',
+        'دينار',
+        'ليرة',
+        'جنيه',
+        'مصري',
+        'سعودي',
+        'درهم',
+    ]
 
-    # 2. البحث البديل في عناصر الصفحة إذا لم تكن في جدول تقليدي
-    if not rates:
-      for el in soup.find_all(['div', 'li', 'p', 'span', 'strong', 'td', 'b']):
-        text = el.text.strip()
-        if any(
-            c in text
-            for c in [
-                'دولار',
-                'يورو',
-                'إسترليني',
-                'ليرة',
-                'مصري',
-                'السعودي',
-                'دينار',
-            ]
-        ) and any(char.isdigit() for char in text):
-          if len(text) < 50:
-            rates.append({'currency': text, 'price': ''})
+    # البحث في جميع العناصر النصية والجداول داخل الصفحة
+    for element in soup.find_all(['tr', 'div', 'p', 'li', 'span', 'strong', 'b']):
+      text = element.get_text(separator=' ', strip=True)
 
-    # إزالة العناصر المكررة
+      # التأكد من أن النص يحتوي على إحدى العملات وأرقام (الأسعار)
+      if any(k in text for k in keywords) and any(
+          char.isdigit() for char in text
+      ):
+        clean_text = ' '.join(text.split())
+        # قبول النصوص ذات الطول المعقول لتجنب جلب القوائم الطويلة أو الجوانب
+        if 5 < len(clean_text) < 80:
+          rates.append({'currency': clean_text, 'price': ''})
+
+    # إزالة العناصر المكررة تماماً
     unique_rates = []
     seen = set()
     for r in rates:
-      identifier = (r['currency'], r['price'])
-      if identifier not in seen:
-        seen.add(identifier)
+      if r['currency'] not in seen:
+        seen.add(r['currency'])
         unique_rates.append(r)
 
-    # إذا لم يتم العثور على بيانات نهائياً
+    # إذا لم يتم العثور على أي بيانات، نضع تنبيه واضح
     if not unique_rates:
       unique_rates = [{
-          'currency': 'تعذر الجلب',
-          'price': 'يرجى التحقق من الهيكل',
+          'currency': 'جاري تحديث البيانات من الموقع',
+          'price': '',
       }]
 
     # حفظ النتائج في ملف rates.json
