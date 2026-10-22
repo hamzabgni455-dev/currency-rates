@@ -9,11 +9,17 @@ def update_market_rates():
   scraper = cloudscraper.create_scraper()
 
   try:
-    response = scraper.get(url, timeout=20)
+    response = scraper.get(url, timeout=25)
+    print(f'حالة الاتصال بالموقع: {response.status_code}')
+
+    if response.status_code != 200:
+      print('الموقع رفض الاتصال أو استجاب بكود خطأ.')
+      return
+
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
-    # الكلمات المفتاحية للعملات والصكوك المصرفية
+    # الكلمات المفتاحية الشاملة للعملات والصكوك
     keywords = [
         'دولار',
         'يورو',
@@ -29,19 +35,18 @@ def update_market_rates():
         'التجارة والتنمية',
         'الوحدة',
         'الجمهورية',
-        'التجاري الوطني',
-        'شمال إفريقيا',
     ]
 
+    # البحث في كافة العناصر المحتملة
     for element in soup.find_all(
-        ['tr', 'div', 'p', 'li', 'span', 'strong', 'b']
+        ['tr', 'div', 'p', 'li', 'span', 'strong', 'b', 'td']
     ):
       text = element.get_text(separator=' ', strip=True)
       if any(k in text for k in keywords) and any(
           char.isdigit() for char in text
       ):
         clean_text = ' '.join(text.split())
-        if 5 < len(clean_text) < 90:
+        if 4 < len(clean_text) < 100:
           match_price = re.search(r'\d+([,.]\d+)?', clean_text)
           if match_price:
             price_val = match_price.group(0)
@@ -58,17 +63,21 @@ def update_market_rates():
         seen.add(identifier)
         unique_rates.append(r)
 
+    # إذا لم يتم العثور على بيانات، نضع بيانات تجريبية واضحة لكي لا يتعطل الملف
     if not unique_rates:
-      unique_rates = [{'currency': 'جاري التحديث', 'price': ''}]
+      unique_rates = [
+          {'currency': 'دولار أمريكي (موازي)', 'price': 'متاح قريباً'},
+          {'currency': 'يورو (موازي)', 'price': 'متاح قريباً'},
+      ]
 
     # حفظ النتائج في ملف rates.json
     with open('rates.json', 'w', encoding='utf-8') as f:
       json.dump(unique_rates, f, ensure_ascii=False, indent=4)
 
-    print(f'تم تحديث الملف بنجاح، عدد العناصر: {len(unique_rates)}')
+    print(f'تم تحديث الملف بنجاح، عدد العناصر المكتشفة: {len(unique_rates)}')
 
   except Exception as e:
-    print(f'حدث خطأ: {e}')
+    print(f'حدث خطأ أثناء التنفيذ: {e}')
 
 
 if __name__ == '__main__':
