@@ -1,24 +1,20 @@
 import json
-import re
+import cloudscraper
 from bs4 import BeautifulSoup
-import requests
 
 
 def update_market_rates():
   url = 'https://www.eanlibya.com/exchangerate/'
-  headers = {
-      'User-Agent': (
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          ' (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-      )
-  }
+
+  # استخدام cloudscraper لتجاوز حماية الموقع (مثل Cloudflare)
+  scraper = cloudscraper.create_scraper()
 
   try:
-    response = requests.get(url, headers=headers, timeout=15)
+    response = scraper.get(url, timeout=20)
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
-    # 1. البحث في صفوف الجداول التقليدية
+    # 1. البحث في جداول الموقع
     for tr in soup.find_all('tr'):
       cols = [td.text.strip() for td in tr.find_all(['th', 'td'])]
       if len(cols) >= 2:
@@ -41,7 +37,7 @@ def update_market_rates():
         ):
           rates.append({'currency': name, 'price': price})
 
-    # 2. البحث الشامل في عناصر الصفحة إذا لم تكن في جدول
+    # 2. البحث البديل في عناصر الصفحة إذا لم تكن في جدول تقليدي
     if not rates:
       for el in soup.find_all(['div', 'li', 'p', 'span', 'strong', 'td', 'b']):
         text = el.text.strip()
@@ -57,34 +53,23 @@ def update_market_rates():
                 'دينار',
             ]
         ) and any(char.isdigit() for char in text):
-          parts = re.split(r'[\s\:\-\|]+', text)
-          if len(parts) >= 2:
-            price_candidate = next(
-                (p for p in parts if any(d.isdigit() for d in p)), ''
-            )
-            name_candidate = ' '.join(
-                [p for p in parts if p != price_candidate]
-            )
-            if price_candidate and len(name_candidate) < 30:
-              rates.append({
-                  'currency': name_candidate.strip(),
-                  'price': price_candidate.strip(),
-              })
+          if len(text) < 50:
+            rates.append({'currency': text, 'price': ''})
 
     # إزالة العناصر المكررة
     unique_rates = []
     seen = set()
     for r in rates:
       identifier = (r['currency'], r['price'])
-      if identifier not in seen and 'جاري' not in r['price']:
+      if identifier not in seen:
         seen.add(identifier)
         unique_rates.append(r)
 
-    # إذا لم يتم العثور على أي بيانات، ضع رسالة توضيحية
+    # إذا لم يتم العثور على بيانات نهائياً
     if not unique_rates:
       unique_rates = [{
-          'currency': 'تحديث قادم',
-          'price': 'يرجى التحقق لاحقاً',
+          'currency': 'تعذر الجلب',
+          'price': 'يرجى التحقق من الهيكل',
       }]
 
     # حفظ النتائج في ملف rates.json
