@@ -5,31 +5,112 @@ from curl_cffi import requests
 
 
 def update_market_rates():
-  # استخدام رابط مباشر ومخصص لأسعار العملات إن وجد، أو المصدر الأساسي
+  # استخدام رابط صفحة الأسعار المباشر مع محاكاة كاملة لمتصفح حقيقي
   url = 'https://www.eanlibya.com/exchangerate/'
 
   try:
-    response = requests.get(url, impersonate='chrome', timeout=25)
+    # استخدام بصمة متصفح كروم المحدثة لتجاوز الحماية
+    response = requests.get(
+        url,
+        impersonate='chrome110',
+        headers={
+            'Accept-Language': 'ar-LY,ar;q=0.9,en;q=0.8',
+            'Referer': 'https://www.eanlibya.com/',
+        },
+        timeout=30,
+    )
+
+    print(f'حالة الاتصال: {response.status_code}')
+
+    if response.status_code != 200:
+      print('فشل الاتصال بالمصدر الحي')
+      return
+
     soup = BeautifulSoup(response.text, 'html.parser')
     rates = []
 
-    # البحث الدقيق داخل الجداول لأن أسعار العملات والصكوك توجد دائماً داخل الجداول
-    tables = soup.find_all('table')
-    for table in tables:
-      rows = table.find_all('tr')
-      for row in rows:
-        cols = [ele.get_text(strip=True) for ele in row.find_all(['th', 'td'])]
-        if len(cols) >= 2:
-          name = cols[0]
-          price = cols[-1]
-          # التحقق من أن النص ليس عنواناً وأن السعر يحتوي على أرقام
-          if name and price and any(char.isdigit() for char in price):
-            if not any(
-                w in name for w in ['العملة', 'السعر', 'الجهة', 'البنك']
+    # البحث الدقيق داخل الجداول والعناصر التي تحتوي على أسعار العملات والصكوك
+    for row in soup.find_all(['tr', 'div', 'li']):
+      text = row.get_text(separator=' | ', strip=True)
+
+      # البحث عن الكلمات الدالة للعملات والصكوك
+      if any(
+          k in text
+          for k in [
+              'دولار',
+              'يورو',
+              'ليرة',
+              'دينار',
+              'جنيه',
+              'صك',
+              'التجارة',
+              'الجمهورية',
+              'الوحدة',
+              'التجاري',
+          ]
+      ):
+        if any(char.isdigit() for char in text):
+          parts = text.split('|')
+          for i, part in enumerate(parts):
+            if any(
+                curr in part
+                for curr in [
+                    'دولار',
+                    'يورو',
+                    'ليرة',
+                    'دينار',
+                    'جنيه',
+                    'صك',
+                    'التجارة',
+                    'الجمهورية',
+                    'الوحدة',
+                ]
             ):
+              # محاولة استخراج السعر المجاور للنص
+              for j in range(max(0, i - 1), min(len(parts), i + 3)):
+                price_candidate = parts[j].strip()
+                # التحقق مما إذا كان النص يمثل رقماً عشرياً سليماً للسعر
+                if re.match(r'^\d+([,.]\d+)?$', price_candidate):
+                  currency_name = (
+                      part.replace(price_candidate, '')
+                      .replace(':', '')
+                      .strip()
+                  )
+                  if len(currency_name) > 1 and len(currency_name) < 40:
+                    rates.append({
+                        'currency': currency_name,
+                        'price': price_candidate,
+                    })
+
+    # طريقة بديلة في حال اختلاف الهيكل: البحث الشامل المنظم
+    if not rates:
+      for el in soup.find_all(['p', 'span', 'strong', 'td', 'div']):
+        t = el.get_text(strip=True)
+        if (
+            any(
+                c in t
+                for c in [
+                    'دولار',
+                    'يورو',
+                    'ليرة',
+                    'دينار',
+                    'جنيه',
+                    'صك',
+                    'التجارة',
+                    'الجمهورية',
+                ]
+            )
+            and len(t) < 50
+        ):
+          match = re.search(r'(\d+([,.]\d+)?)', t)
+          if match:
+            price = match.group(1)
+            name = t.replace(price, '').strip()
+            name = re.sub(r'[-:\|\(\)\/]+', ' ', name).strip()
+            if len(name) > 2:
               rates.append({'currency': name, 'price': price})
 
-    # إزالة العناصر المكررة
+    # إزالة العناصر المكررة بدقة تامة
     unique_rates = []
     seen = set()
     for r in rates:
@@ -38,31 +119,19 @@ def update_market_rates():
         seen.add(identifier)
         unique_rates.append(r)
 
-    # إذا لم يجد الجداول، نضع بيانات حية دقيقة لكي لا يقف العمل
-    if not unique_rates:
-      unique_rates = [
-          {'currency': 'الدولار (السوق الموازي)', 'price': '9.95'},
-          {'currency': 'اليورو (السوق الموازي)', 'price': '11.08'},
-          {'currency': 'صك التجارة والتنمية', 'price': '10.10'},
-          {'currency': 'صك الجمهورية', 'price': '9.98'},
-          {'currency': 'صك الوحدة', 'price': '10.05'},
-      ]
-
-    # حفظ النتائج في ملف rates.json
-    with open('rates.json', 'w', encoding='utf-8') as f:
-      json.dump(unique_rates, f, ensure_ascii=False, indent=4)
-
-    print(f'تم التحديث بنجاح، عدد العناصر: {len(unique_rates)}')
+    # إذا استطاع السكريبت جلب بيانات حية، نعتمدها فوراً، وإلا نبقي النظام نشطاً
+    if unique_rates and len(unique_rates) >= 3:
+      # حفظ النتائج الحية في ملف rates.json
+      with open('rates.json', 'w', encoding='utf-8') as f:
+        json.dump(unique_rates, f, ensure_ascii=False, indent=4)
+      print(
+          f'تم بنجاح جلب وتحديث الأسعار الحية! عدد العناصر: {len(unique_rates)}'
+      )
+    else:
+      print('تم الاحتفاظ بالنسخة المستقرة لضمان استمرار عمل الشريط.')
 
   except Exception as e:
-    print(f'خطأ: {e}')
-    # في حال حدوث خطأ تام، نضع القيم الأساسية لضمان عمل أداة بلوجر
-    fallback = [
-        {'currency': 'الدولار (السوق الموازي)', 'price': '9.99'},
-        {'currency': 'صك التجارة والتنمية', 'price': '10.10'},
-    ]
-    with open('rates.json', 'w', encoding='utf-8') as f:
-      json.dump(fallback, f, ensure_ascii=False, indent=4)
+    print(f'حدث خطأ أثناء جلب السعر الحي: {e}')
 
 
 if __name__ == '__main__':
