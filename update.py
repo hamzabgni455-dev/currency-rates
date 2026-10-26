@@ -14,67 +14,56 @@ def update_market_rates():
       return
 
     soup = BeautifulSoup(response.text, 'html.parser')
-    raw_rates = []
+    rates = []
 
-    # استخراج الصفوف من الجداول بدقة
+    # فحص صفوف الجدول بدقة منعاً لتداخل الأعمدة
     for row in soup.find_all('tr'):
       cols = [col.get_text(strip=True) for col in row.find_all(['td', 'th'])]
       if len(cols) >= 2:
-        # البحث عن خلية تحتوي على اسم العملة وخلية تحتوي على السعر
-        name = ''
-        price = ''
-        for col in cols:
-          if any(
-              k in col
-              for k in [
-                  'دولار',
-                  'يورو',
-                  'ليرة',
-                  'دينار',
-                  'جنيه',
-                  'صك',
-                  'التجارة',
-                  'الجمهورية',
-                  'الوحدة',
-              ]
-          ):
-            name = col
-          elif re.match(r'^\d+([,.]\d+)?$', col):
-            price = col
+        row_text = ' '.join(cols)
 
-        if name and price:
-          # تنظيف الاسم من أي رموز زائدة
-          name = re.sub(r'[-:\|\(\)\/]+', ' ', name).strip()
-          raw_rates.append({'currency': name, 'price': price})
+        # تحديد اسم العملة الصحيح بناءً على محتوى الصف
+        curr_name = ''
+        if 'دولار' in row_text:
+          curr_name = 'الدولار (موازي)'
+        elif 'يورو' in row_text:
+          curr_name = 'اليورو'
+        elif 'ليرة' in row_text:
+          curr_name = 'الليرة التركية'
+        elif 'تونسي' in row_text:
+          curr_name = 'الدينار التونسي'
+        elif 'مصري' in row_text:
+          curr_name = 'الجنيه المصري'
 
-    # تصفية وإزالة العناصر المكررة والاحتفاظ بأحدث سعر فريد
+        if curr_name:
+          # استخراج الأرقام العشرية من الصف وتجنب التداخل
+          prices = []
+          for col in cols:
+            match = re.findall(r'\b\d+[\.,]\d+\b', col)
+            if match:
+              prices.extend(match)
+
+          if prices:
+            # نأخذ أول رقم عشري دقيق يمثل سعر العملة في الجدول
+            price_val = prices[0]
+            rates.append({'currency': curr_name, 'price': price_val})
+
+    # تصفية النتائج والاحتفاظ بنسخة فريدة وصحيحة لكل عملة
     unique_rates = []
-    seen_currencies = set()
-    for r in raw_rates:
-      curr_name = r['currency']
-      # توحيد التسمية المختصرة
-      if 'دولار' in curr_name:
-        clean_name = 'الدولار (موازي)'
-      elif 'يورو' in curr_name:
-        clean_name = 'اليورو'
-      elif 'ليرة' in curr_name:
-        clean_name = 'الليرة التركية'
-      elif 'تونسي' in curr_name:
-        clean_name = 'الدينار التونسي'
-      elif 'مصري' in curr_name:
-        clean_name = 'الجنيه المصري'
-      else:
-        clean_name = curr_name
+    seen = set()
+    for r in rates:
+      if r['currency'] not in seen:
+        seen.add(r['currency'])
+        unique_rates.append(r)
 
-      if clean_name not in seen_currencies:
-        seen_currencies.add(clean_name)
-        unique_rates.append({'currency': clean_name, 'price': r['price']})
-
-    # إذا استخرجنا نتائج صالحة، نحفظها
+    # حفظ النتائج المنظمة في ملف rates.json
     if unique_rates:
       with open('rates.json', 'w', encoding='utf-8') as f:
         json.dump(unique_rates, f, ensure_ascii=False, indent=4)
-      print(f'تم تحديث الأسعار الحية بنجاح! عدد العناصر: {len(unique_rates)}')
+      print(
+          'تم تحديث الأسعار الحية بدقة تامة وبدون تداخل! عدد العناصر:'
+          f' {len(unique_rates)}'
+      )
     else:
       print('لم يتم العثور على مطابقات كافية.')
 
