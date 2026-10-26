@@ -5,133 +5,81 @@ from curl_cffi import requests
 
 
 def update_market_rates():
-  # استخدام رابط صفحة الأسعار المباشر مع محاكاة كاملة لمتصفح حقيقي
   url = 'https://www.eanlibya.com/exchangerate/'
 
   try:
-    # استخدام بصمة متصفح كروم المحدثة لتجاوز الحماية
-    response = requests.get(
-        url,
-        impersonate='chrome110',
-        headers={
-            'Accept-Language': 'ar-LY,ar;q=0.9,en;q=0.8',
-            'Referer': 'https://www.eanlibya.com/',
-        },
-        timeout=30,
-    )
-
-    print(f'حالة الاتصال: {response.status_code}')
-
+    response = requests.get(url, impersonate='chrome110', timeout=30)
     if response.status_code != 200:
-      print('فشل الاتصال بالمصدر الحي')
+      print('فشل الاتصال بالمصدر')
       return
 
     soup = BeautifulSoup(response.text, 'html.parser')
-    rates = []
+    raw_rates = []
 
-    # البحث الدقيق داخل الجداول والعناصر التي تحتوي على أسعار العملات والصكوك
-    for row in soup.find_all(['tr', 'div', 'li']):
-      text = row.get_text(separator=' | ', strip=True)
+    # استخراج الصفوف من الجداول بدقة
+    for row in soup.find_all('tr'):
+      cols = [col.get_text(strip=True) for col in row.find_all(['td', 'th'])]
+      if len(cols) >= 2:
+        # البحث عن خلية تحتوي على اسم العملة وخلية تحتوي على السعر
+        name = ''
+        price = ''
+        for col in cols:
+          if any(
+              k in col
+              for k in [
+                  'دولار',
+                  'يورو',
+                  'ليرة',
+                  'دينار',
+                  'جنيه',
+                  'صك',
+                  'التجارة',
+                  'الجمهورية',
+                  'الوحدة',
+              ]
+          ):
+            name = col
+          elif re.match(r'^\d+([,.]\d+)?$', col):
+            price = col
 
-      # البحث عن الكلمات الدالة للعملات والصكوك
-      if any(
-          k in text
-          for k in [
-              'دولار',
-              'يورو',
-              'ليرة',
-              'دينار',
-              'جنيه',
-              'صك',
-              'التجارة',
-              'الجمهورية',
-              'الوحدة',
-              'التجاري',
-          ]
-      ):
-        if any(char.isdigit() for char in text):
-          parts = text.split('|')
-          for i, part in enumerate(parts):
-            if any(
-                curr in part
-                for curr in [
-                    'دولار',
-                    'يورو',
-                    'ليرة',
-                    'دينار',
-                    'جنيه',
-                    'صك',
-                    'التجارة',
-                    'الجمهورية',
-                    'الوحدة',
-                ]
-            ):
-              # محاولة استخراج السعر المجاور للنص
-              for j in range(max(0, i - 1), min(len(parts), i + 3)):
-                price_candidate = parts[j].strip()
-                # التحقق مما إذا كان النص يمثل رقماً عشرياً سليماً للسعر
-                if re.match(r'^\d+([,.]\d+)?$', price_candidate):
-                  currency_name = (
-                      part.replace(price_candidate, '')
-                      .replace(':', '')
-                      .strip()
-                  )
-                  if len(currency_name) > 1 and len(currency_name) < 40:
-                    rates.append({
-                        'currency': currency_name,
-                        'price': price_candidate,
-                    })
+        if name and price:
+          # تنظيف الاسم من أي رموز زائدة
+          name = re.sub(r'[-:\|\(\)\/]+', ' ', name).strip()
+          raw_rates.append({'currency': name, 'price': price})
 
-    # طريقة بديلة في حال اختلاف الهيكل: البحث الشامل المنظم
-    if not rates:
-      for el in soup.find_all(['p', 'span', 'strong', 'td', 'div']):
-        t = el.get_text(strip=True)
-        if (
-            any(
-                c in t
-                for c in [
-                    'دولار',
-                    'يورو',
-                    'ليرة',
-                    'دينار',
-                    'جنيه',
-                    'صك',
-                    'التجارة',
-                    'الجمهورية',
-                ]
-            )
-            and len(t) < 50
-        ):
-          match = re.search(r'(\d+([,.]\d+)?)', t)
-          if match:
-            price = match.group(1)
-            name = t.replace(price, '').strip()
-            name = re.sub(r'[-:\|\(\)\/]+', ' ', name).strip()
-            if len(name) > 2:
-              rates.append({'currency': name, 'price': price})
-
-    # إزالة العناصر المكررة بدقة تامة
+    # تصفية وإزالة العناصر المكررة والاحتفاظ بأحدث سعر فريد
     unique_rates = []
-    seen = set()
-    for r in rates:
-      identifier = (r['currency'], r['price'])
-      if identifier not in seen:
-        seen.add(identifier)
-        unique_rates.append(r)
+    seen_currencies = set()
+    for r in raw_rates:
+      curr_name = r['currency']
+      # توحيد التسمية المختصرة
+      if 'دولار' in curr_name:
+        clean_name = 'الدولار (موازي)'
+      elif 'يورو' in curr_name:
+        clean_name = 'اليورو'
+      elif 'ليرة' in curr_name:
+        clean_name = 'الليرة التركية'
+      elif 'تونسي' in curr_name:
+        clean_name = 'الدينار التونسي'
+      elif 'مصري' in curr_name:
+        clean_name = 'الجنيه المصري'
+      else:
+        clean_name = curr_name
 
-    # إذا استطاع السكريبت جلب بيانات حية، نعتمدها فوراً، وإلا نبقي النظام نشطاً
-    if unique_rates and len(unique_rates) >= 3:
-      # حفظ النتائج الحية في ملف rates.json
+      if clean_name not in seen_currencies:
+        seen_currencies.add(clean_name)
+        unique_rates.append({'currency': clean_name, 'price': r['price']})
+
+    # إذا استخرجنا نتائج صالحة، نحفظها
+    if unique_rates:
       with open('rates.json', 'w', encoding='utf-8') as f:
         json.dump(unique_rates, f, ensure_ascii=False, indent=4)
-      print(
-          f'تم بنجاح جلب وتحديث الأسعار الحية! عدد العناصر: {len(unique_rates)}'
-      )
+      print(f'تم تحديث الأسعار الحية بنجاح! عدد العناصر: {len(unique_rates)}')
     else:
-      print('تم الاحتفاظ بالنسخة المستقرة لضمان استمرار عمل الشريط.')
+      print('لم يتم العثور على مطابقات كافية.')
 
   except Exception as e:
-    print(f'حدث خطأ أثناء جلب السعر الحي: {e}')
+    print(f'حدث خطأ: {e}')
 
 
 if __name__ == '__main__':
